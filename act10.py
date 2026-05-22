@@ -1,88 +1,138 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.graph_objects as go
 
 # Configuración de la página
-st.set_page_config(page_title="Análisis de Rendimiento Agrícola", layout="wide")
-st.title("🌾 Ejercicio 10: Factores que afectan el rendimiento de cultivos")
+st.set_page_config(page_title="Smart Farming Analytics", page_icon="🌾", layout="wide")
 
-# Cargar datos con manejo de error
+st.title("🌾 Smart Farming - Análisis de Rendimiento de Cultivos 2024")
+st.markdown("Aplicación interactiva para explorar factores que afectan el rendimiento agrícola.")
+
+# -------------------------------
+# 1. Carga de datos con manejo de errores
+# -------------------------------
 @st.cache_data
 def load_data():
+    file_path = "Smart_Farming_Crop_Yield_2024.csv"
     try:
-        df = pd.read_csv("Smart_Farming_Crop_Yield_2024.csv")
-        # Convertir fechas
-        df['sowing_date'] = pd.to_datetime(df['sowing_date'])
-        df['harvest_date'] = pd.to_datetime(df['harvest_date'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        return df
+        df = pd.read_csv(file_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        df = pd.read_csv(file_path, encoding='latin1')
     except FileNotFoundError:
-        st.error("❌ No se encontró el archivo 'Smart_Farming_Crop_Yield_2024.csv'. Asegúrate de que esté en la misma carpeta que este script.")
+        st.error(f"❌ No se encontró el archivo '{file_path}'. Asegúrate de que esté en el mismo directorio.")
         st.stop()
+    df.columns = df.columns.str.strip()
+    return df
 
 df = load_data()
+st.success(f"✅ Datos cargados: {df.shape[0]} registros, {df.shape[1]} columnas")
 
-# Sidebar con filtros
-st.sidebar.header("Filtros")
-region = st.sidebar.multiselect("Región", df['region'].unique(), default=df['region'].unique())
-crop = st.sidebar.multiselect("Cultivo", df['crop_type'].unique(), default=df['crop_type'].unique())
-disease = st.sidebar.multiselect("Estado de enfermedad", df['crop_disease_status'].unique(), default=df['crop_disease_status'].unique())
+# -------------------------------
+# 2. Filtros en sidebar
+# -------------------------------
+st.sidebar.header("🔍 Filtros")
+region = st.sidebar.selectbox("Región", ["Todas"] + sorted(df['region'].unique()))
+crop = st.sidebar.selectbox("Cultivo", ["Todos"] + sorted(df['crop_type'].unique()))
+yield_range = st.sidebar.slider(
+    "Rendimiento (kg/ha)",
+    float(df['yield_kg_per_hectare'].min()),
+    float(df['yield_kg_per_hectare'].max()),
+    (float(df['yield_kg_per_hectare'].min()), float(df['yield_kg_per_hectare'].max()))
+)
 
-df_filtered = df[df['region'].isin(region) & df['crop_type'].isin(crop) & df['crop_disease_status'].isin(disease)]
+# Aplicar filtros
+df_filtered = df.copy()
+if region != "Todas":
+    df_filtered = df_filtered[df_filtered['region'] == region]
+if crop != "Todos":
+    df_filtered = df_filtered[df_filtered['crop_type'] == crop]
+df_filtered = df_filtered[(df_filtered['yield_kg_per_hectare'] >= yield_range[0]) & 
+                          (df_filtered['yield_kg_per_hectare'] <= yield_range[1])]
 
-# Métricas principales
+st.sidebar.markdown(f"**Registros mostrados:** {df_filtered.shape[0]}")
+
+# -------------------------------
+# 3. Métricas
+# -------------------------------
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Rendimiento promedio (kg/ha)", f"{df_filtered['yield_kg_per_hectare'].mean():.0f}")
-col2.metric("Cultivos analizados", len(df_filtered))
-col3.metric("Humedad suelo promedio", f"{df_filtered['soil_moisture_%'].mean():.1f}%")
-col4.metric("Lluvia promedio (mm)", f"{df_filtered['rainfall_mm'].mean():.1f}")
+col1.metric("Rendimiento promedio", f"{df_filtered['yield_kg_per_hectare'].mean():.0f} kg/ha")
+col2.metric("Rendimiento máximo", f"{df_filtered['yield_kg_per_hectare'].max():.0f} kg/ha")
+col3.metric("Rendimiento mínimo", f"{df_filtered['yield_kg_per_hectare'].min():.0f} kg/ha")
+col4.metric("Número de granjas", df_filtered['farm_id'].nunique())
 
-# Gráfico 1: Rendimiento por región y cultivo
-st.subheader("📊 Rendimiento promedio por región y tipo de cultivo")
-fig1 = px.bar(df_filtered, x='region', y='yield_kg_per_hectare', color='crop_type',
-              barmode='group', title="Rendimiento por región y cultivo")
+# -------------------------------
+# 4. Tabla de datos (expandible)
+# -------------------------------
+with st.expander("📄 Ver datos filtrados"):
+    st.dataframe(df_filtered, use_container_width=True)
+
+# -------------------------------
+# 5. Visualizaciones
+# -------------------------------
+st.header("📊 Análisis exploratorio")
+
+# Distribución del rendimiento por cultivo
+st.subplot = st.subheader("Rendimiento por tipo de cultivo")
+fig1 = px.box(df_filtered, x='crop_type', y='yield_kg_per_hectare', color='crop_type',
+              title="Distribución del rendimiento por cultivo", points="all")
 st.plotly_chart(fig1, use_container_width=True)
 
-# Gráfico 2: Relación entre humedad del suelo y rendimiento
-st.subheader("💧 Humedad del suelo vs Rendimiento")
-fig2 = px.scatter(df_filtered, x='soil_moisture_%', y='yield_kg_per_hectare',
-                  color='crop_type', size='rainfall_mm', hover_data=['region'],
-                  title="Mayor humedad no siempre implica mayor rendimiento")
+# Correlación con variables ambientales
+st.subheader("Correlación entre variables ambientales y rendimiento")
+numeric_cols = ['soil_moisture_%', 'soil_pH', 'temperature_C', 'rainfall_mm', 
+                'humidity_%', 'sunlight_hours', 'pesticide_usage_ml', 'total_days', 
+                'yield_kg_per_hectare']
+corr = df_filtered[numeric_cols].corr()['yield_kg_per_hectare'].sort_values(ascending=False)
+fig_corr = px.bar(x=corr.index[1:], y=corr.values[1:], 
+                  labels={'x':'Variable', 'y':'Correlación con rendimiento'},
+                  title="Importancia de cada variable en el rendimiento")
+st.plotly_chart(fig_corr, use_container_width=True)
+
+# Relación entre dos variables (interactivo)
+st.subheader("Relación entre variable ambiental y rendimiento")
+x_var = st.selectbox("Selecciona variable X", numeric_cols[:-1], index=0)
+fig2 = px.scatter(df_filtered, x=x_var, y='yield_kg_per_hectare', color='crop_type',
+                  size='total_days', hover_data=['farm_id', 'region'],
+                  title=f"{x_var} vs Rendimiento")
 st.plotly_chart(fig2, use_container_width=True)
 
-# Gráfico 3: Impacto del tipo de riego y fertilizante
-st.subheader("💦 Tipo de riego y fertilizante vs Rendimiento")
-fig3 = px.box(df_filtered, x='irrigation_type', y='yield_kg_per_hectare',
-              color='fertilizer_type', title="Distribución del rendimiento por riego y fertilizante")
+# Mapa de ubicaciones
+st.subheader("📍 Ubicación geográfica de las granjas")
+if 'latitude' in df_filtered.columns and 'longitude' in df_filtered.columns:
+    df_map = df_filtered.dropna(subset=['latitude', 'longitude'])
+    fig_map = px.scatter_mapbox(df_map, lat='latitude', lon='longitude', 
+                                color='yield_kg_per_hectare', size='yield_kg_per_hectare',
+                                hover_name='farm_id', hover_data=['crop_type', 'region'],
+                                color_continuous_scale='Viridis',
+                                title="Rendimiento por ubicación")
+    fig_map.update_layout(mapbox_style="open-street-map", margin={"r":0,"t":30,"l":0,"b":0})
+    st.plotly_chart(fig_map, use_container_width=True)
+else:
+    st.info("No se encontraron columnas de latitud/longitud para el mapa.")
+
+# Rendimiento por región
+st.subheader("Rendimiento promedio por región")
+region_yield = df_filtered.groupby('region')['yield_kg_per_hectare'].mean().reset_index()
+fig3 = px.bar(region_yield, x='region', y='yield_kg_per_hectare', color='region',
+              title="Rendimiento medio por región")
 st.plotly_chart(fig3, use_container_width=True)
 
-# Gráfico 4: Estado de enfermedad vs rendimiento
-st.subheader("🦠 Estado de enfermedad y rendimiento")
-fig4 = px.violin(df_filtered, x='crop_disease_status', y='yield_kg_per_hectare',
-                 color='crop_disease_status', box=True, title="Enfermedades severas reducen el rendimiento")
-st.plotly_chart(fig4, use_container_width=True)
+# -------------------------------
+# 6. Estadísticas
+# -------------------------------
+st.subheader("📈 Estadísticas descriptivas")
+st.dataframe(df_filtered[numeric_cols].describe(), use_container_width=True)
 
-# Gráfico 5: Matriz de correlación (solo si hay suficientes datos)
-st.subheader("📈 Matriz de correlación")
-numeric_cols = ['soil_moisture_%', 'soil_pH', 'temperature_C', 'rainfall_mm',
-                'humidity_%', 'sunlight_hours', 'pesticide_usage_ml', 'total_days', 'yield_kg_per_hectare']
-corr = df_filtered[numeric_cols].corr()
+st.subheader("📌 Frecuencia de cultivos y enfermedades")
+col_cat1, col_cat2 = st.columns(2)
+col_cat1.write("**Cultivos más comunes**")
+col_cat1.dataframe(df_filtered['crop_type'].value_counts().reset_index().rename(
+    columns={'index': 'Cultivo', 'crop_type': 'Conteo'}))
+col_cat2.write("**Estado de enfermedades**")
+col_cat2.dataframe(df_filtered['crop_disease_status'].value_counts().reset_index().rename(
+    columns={'index': 'Estado', 'crop_disease_status': 'Conteo'}))
 
-fig, ax = plt.subplots(figsize=(10, 8))
-sns.heatmap(corr, annot=True, cmap='coolwarm', fmt='.2f', ax=ax)
-st.pyplot(fig)
-
-# Tabla de datos filtrados (opcional)
-with st.expander("📋 Ver datos filtrados"):
-    st.dataframe(df_filtered)
-
-# Conclusiones
-st.subheader("🔍 Conclusiones")
-st.markdown("""
-- **Riego por goteo (Drip)** y **fertilizante orgánico** suelen dar mayor rendimiento en cultivos como Maíz y Soja.
-- La **humedad del suelo** entre 25% y 40% se asocia con rendimientos altos; por debajo o por encima disminuye.
-- Las **enfermedades severas (Severe)** reducen el rendimiento en más de un 30% comparado con cultivos sanos.
-- La **temperatura** óptima varía según cultivo: para Trigo ~20-25°C, para Maíz ~25-30°C.
-""")
+st.markdown("---")
+st.caption("Desarrollado con Streamlit | Datos Smart Farming Crop Yield 2024")
