@@ -8,15 +8,19 @@ import seaborn as sns
 st.set_page_config(page_title="Análisis de Rendimiento Agrícola", layout="wide")
 st.title("🌾 Ejercicio 10: Factores que afectan el rendimiento de cultivos")
 
-# Cargar datos
+# Cargar datos con manejo de error
 @st.cache_data
 def load_data():
-    df = pd.read_csv("Smart_Farming_Crop_Yield_2024.csv")
-    # Convertir fechas
-    df['sowing_date'] = pd.to_datetime(df['sowing_date'])
-    df['harvest_date'] = pd.to_datetime(df['harvest_date'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    return df
+    try:
+        df = pd.read_csv("Smart_Farming_Crop_Yield_2024.csv")
+        # Convertir fechas
+        df['sowing_date'] = pd.to_datetime(df['sowing_date'])
+        df['harvest_date'] = pd.to_datetime(df['harvest_date'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        return df
+    except FileNotFoundError:
+        st.error("❌ No se encontró el archivo 'Smart_Farming_Crop_Yield_2024.csv'. Asegúrate de que esté en la misma carpeta que este script.")
+        st.stop()
 
 df = load_data()
 
@@ -60,7 +64,7 @@ fig4 = px.violin(df_filtered, x='crop_disease_status', y='yield_kg_per_hectare',
                  color='crop_disease_status', box=True, title="Enfermedades severas reducen el rendimiento")
 st.plotly_chart(fig4, use_container_width=True)
 
-# Gráfico 5: Correlación entre variables numéricas
+# Gráfico 5: Matriz de correlación (solo si hay suficientes datos)
 st.subheader("📈 Matriz de correlación")
 numeric_cols = ['soil_moisture_%', 'soil_pH', 'temperature_C', 'rainfall_mm',
                 'humidity_%', 'sunlight_hours', 'pesticide_usage_ml', 'total_days', 'yield_kg_per_hectare']
@@ -74,7 +78,7 @@ st.pyplot(fig)
 with st.expander("📋 Ver datos filtrados"):
     st.dataframe(df_filtered)
 
-# Conclusión automática
+# Conclusiones
 st.subheader("🔍 Conclusiones")
 st.markdown("""
 - **Riego por goteo (Drip)** y **fertilizante orgánico** suelen dar mayor rendimiento en cultivos como Maíz y Soja.
